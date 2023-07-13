@@ -99,9 +99,9 @@ def add_road_network_map():
     buffered_line_road_gpd = gpd.GeoDataFrame(geometry=gpd.GeoSeries(buffered_line_road))
     intersecting_polygons_road = gpd.sjoin(counties_data, buffered_line_road_gpd, op="intersects").drop_duplicates(subset=['GEOID'])
     roads_buffer = folium.GeoJson(intersecting_polygons_road)
-    roads_buffer_display = folium.GeoJson(buffered_line_road)
+    #roads_buffer_display = folium.GeoJson(buffered_line_road)
     st.session_state["markers"].append(roads_buffer)
-    st.session_state["markers"].append(roads_buffer_display)
+    #st.session_state["markers"].append(roads_buffer_display)
 
     #display_data_road = intersecting_polygons_road[['STATEFP', 'COUNTYFP', 'GEOID', 'NAME']]
     #display_data_road.columns = ['STATE CODE', 'COUNTY CODE', 'FIPS', 'COUNTY NAME']
