@@ -71,7 +71,7 @@ for marker in st.session_state["markers"]:
     fg.add_child(marker)
 
 # Set the path to the counties GeoJSON file
-counties_dat = "C:/Users/simra/Desktop/Shapefiles/cb_2018_us_county_20m/cb_2018_us_county_20m.shp"
+counties_dat = "c:/Users/aroras4/Desktop/Shapefiles/cb_2018_us_county_20m.shp" #Update to TIGER shapefile link
 
 # Read the counties GeoJSON file as a geodataframe
 counties_data = gpd.read_file(counties_dat)
