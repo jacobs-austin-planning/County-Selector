@@ -7,11 +7,11 @@
 #----
 import folium
 import streamlit as st
-from streamlit_folium import folium_static, st_folium
+from streamlit_folium import st_folium
 from folium.plugins import Draw
 import geopandas as gpd
 import pandas as pd
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString
 import geojson
 #----
 
@@ -33,7 +33,7 @@ with st.sidebar:
     if st.button('Refresh Map'):
         st.session_state["markers"] = []
 
-    st.write("Pick Color for County Boundary")
+    st.write("## Pick Color for County Boundary")
 
     color = st.color_picker('Color Selector', '#000000')  # Default color if the checkbox is selected
 
@@ -49,13 +49,17 @@ with st.sidebar:
 
     st.write("## Road Network Option")
     roads = st.file_uploader("Upload Road Network Here")
-    road_buffer = st.text_input("Buffer Road Distance (miles)") # Add default buffer value
+    st.write(
+            " To use the Road Network Option, upload a zipped shapefile below AND enter a buffer value in miles."
+            )
+    road_buffer = st.text_input("Buffer Road Distance (miles)") 
     st.write(
         "Upload CSV File to merge with roads data. CSV file should have a field named 'FIPS', which includes the 5-digit county code."
         )
     rd = st.file_uploader("Upload CSV file (for roads)")
 
     st.write("## Add Data to Map")
+    st.write(" To add any point, line or polygon data, upload the zipped shapefile below.")
     shp = st.file_uploader("Upload Any .SHP data here")
 #---
 
@@ -70,16 +74,17 @@ fg = folium.FeatureGroup(name="Markers")
 for marker in st.session_state["markers"]:
     fg.add_child(marker)
 
-# Set the path to the counties GeoJSON file
-counties_dat = "c:/Users/aroras4/Desktop/Shapefiles/cb_2018_us_county_20m.shp" #Update to TIGER shapefile link
-
-# Read the counties GeoJSON file as a geodataframe
-counties_data = gpd.read_file(counties_dat)
+@st.cache_data
+def map_data():
+    counties_dat = "c:/Users/aroras4/Desktop/Shapefiles/cb_2018_us_county_20m.shp"
+    counties_data = gpd.read_file(counties_dat)
+    return counties_data
 
 # Create the initial map
 style_func = lambda x: {'fillColor': 'grey', 'color': color, 'weight': 0.5, 'fillOpacity': 0.6}
 style = {'fillColor': '#00FFFFFF', 'lineColor': '#00FFFFFF'}
 m = folium.Map(location=[38, -80.5], zoom_start=4, control_scale=True)
+counties_data = map_data()
 folium.GeoJson(counties_data, style_function=style_func, 
                tooltip=folium.features.GeoJsonTooltip(fields=['NAME', 'GEOID'], aliases=['County Name: ', 'FIPS: '])).add_to(m)
 
@@ -98,12 +103,15 @@ map = st_folium(m,
 #---
 # Functions
 
-if shp is not None:
-    shp_df = gpd.read_file(shp)
-    shp_map = folium.GeoJson(shp_df).add_to(m)
-    st.session_state["markers"].append(shp_map)
-else:
-    None
+def add_shp_to_map():
+    if shp is not None:
+        shp_df = gpd.read_file(shp)
+        shp_map = folium.GeoJson(shp_df, tooltip=folium.features.GeoJsonTooltip(fields=["OPRTL_ST_1"], alaiases=["Bridge Status: "], labels = True)).add_to(m)
+        st.session_state["markers"].append(shp_map)
+        st.write("Marker Data")
+        st.write(shp_df)
+        global map
+        return shp_df
 
 
 def distance_conversion(distance): #Convert to miles. Buffer radius.
@@ -112,62 +120,34 @@ def distance_conversion(distance): #Convert to miles. Buffer radius.
 # Road Network Uploader
 
 def add_road_buffer():
-    road_bd = int(road_buffer)
-    road_network_buffer_dist_miles = distance_conversion(road_bd)
-
-    road_buffer_geo = roads_gdf['geometry']
+    if roads and road_buffer is not None:
+        road_bd = int(road_buffer) if road_buffer else None
+        road_network_buffer_dist_miles = distance_conversion(road_bd)
+        road_buffer_geo = roads_gdf['geometry']
+        road_buffered_line = road_buffer_geo.buffer(road_network_buffer_dist_miles)
     
-    road_buffered_line = road_buffer_geo.buffer(road_network_buffer_dist_miles) #CONVERT TO GDF
-    rbl = gpd.GeoDataFrame(gpd.GeoSeries(road_buffered_line))
-    rbl.columns = ['geometry']
-    rbl.set_geometry("geometry", inplace=True)
-    rbl.set_crs("EPSG:4269", inplace=True, allow_override=True)
+        rbl = gpd.GeoDataFrame(gpd.GeoSeries(road_buffered_line))
+        rbl.columns = ['geometry']
+        rbl.set_geometry("geometry", inplace=True)
+        rbl.set_crs("EPSG:4269", inplace=True, allow_override=True)
 
-    intersecting_road_polygons = gpd.sjoin(counties_data, rbl, op='intersects').drop_duplicates(subset='GEOID')
-    road_selected_polygons = intersecting_road_polygons
+        intersecting_road_polygons = gpd.sjoin(counties_data, rbl, op='intersects').drop_duplicates(subset='GEOID')
+        road_selected_polygons = intersecting_road_polygons
 
-    display_data_road = intersecting_road_polygons[['STATEFP', 'COUNTYFP', 'GEOID', 'NAME']]
-    display_data_road.columns = ['STATE CODE', 'COUNTY CODE', 'FIPS', 'COUNTY NAME']
+        display_data_road = intersecting_road_polygons[['STATEFP', 'COUNTYFP', 'GEOID', 'NAME']]
+        display_data_road.columns = ['STATE CODE', 'COUNTY CODE', 'FIPS', 'COUNTY NAME']
 
-    st.write(display_data_road)
+        st.write("Counties Intersecting with Road Network Buffer:")
+        st.write(display_data_road)
+        #road_buffer_map = folium.GeoJson(road_buffered_line) #Switch on for road buffer
+        #st.session_state["markers"].append(road_buffer_map) #Switch on for road buffer
+        roads_intersecting_counties = folium.GeoJson(road_selected_polygons, tooltip=folium.features.GeoJsonTooltip(fields=['NAME', 'GEOID'], aliases=['Selected County Name: ', 'FIPS: ']))
+        st.session_state["markers"].append(roads_intersecting_counties)
 
-    #road_buffer_map = folium.GeoJson(road_buffered_line) #Switch on for road buffer
-    #st.session_state["markers"].append(road_buffer_map) #Switch on for road buffer
-    roads_intersecting_counties = folium.GeoJson(road_selected_polygons, tooltip=folium.features.GeoJsonTooltip(fields=['NAME', 'GEOID'], aliases=['Selected County Name: ', 'FIPS: ']))
-    st.session_state["markers"].append(roads_intersecting_counties)
+        global map
+        return display_data_road
 
-    # if st.button('test'):
-    #         road_csv_data = display_data_road.to_csv(index = False)
-    #         st.download_button(label='test', data=road_csv_data, file_name='data.csv', mime='text/csv')
-
-    global map
-    return display_data_road
-
-
-def merge_road_csv(roads_data):
-    uploaded_road_file = rd
-    if uploaded_road_file is not None:
-        road_csv_merge = pd.read_csv(uploaded_road_file) 
-        road_csv_merge['FIPS'] = road_csv_merge['FIPS'].astype(int) 
-        roads_data['FIPS'] = roads_data['FIPS'].astype(int)
-        merged_csv_roads = roads_data.merge(road_csv_merge, how="inner", on="FIPS")
-        st.write(merged_csv_roads)
-
-    #     uploaded_file = fd
-    # if uploaded_file is not None:
-    #     csv_data = pd.read_csv(uploaded_file)
-    #     csv_data['FIPS'] = csv_data['FIPS'].astype(int)
-    #     display_data['FIPS'] = display_data['FIPS'].astype(int) 
-    #     merged_csv = display_data.merge(csv_data, how="inner", on="FIPS")
-    #     st.write(merged_csv)
-    
-    #     if st.button('Create Merged CSV'):
-    #         csv_data = merged_csv.to_csv(index=False)
-    #         st.download_button(label='Click to download', data=csv_data, file_name='data_merged.csv', mime='text/csv')
-
-    return None
-
-  
+# Road Uploader
 
 if roads and road_buffer is not None:
     roads_gdf = gpd.read_file(roads)
@@ -175,11 +155,9 @@ if roads and road_buffer is not None:
     roads_map = folium.GeoJson(roads_gdf, style_function= lambda x: style1).add_to(m)
     st.session_state["markers"].append(roads_map)
     add_road_buffer()
-else:
-    st.warning("Please provide both: road network and buffer distance.")
 
-roads_data = add_road_buffer() 
-merge_road_csv(roads_data)
+
+# Functions
 
 def add_intersecting_polygons_to_map(linestring, buffer_distance):
     buffered_line = linestring.buffer(buffer_distance)
@@ -243,12 +221,29 @@ def upload_csv(display_data):
 
     return None
 
+def merge_road_csv(roads_data):
+    uploaded_road_file = rd
+    if uploaded_road_file is not None:
+        road_csv_merge = pd.read_csv(uploaded_road_file) 
+        road_csv_merge['FIPS'] = road_csv_merge['FIPS'].astype(int) 
+        roads_data['FIPS'] = roads_data['FIPS'].astype(int)
+        merged_csv_roads = roads_data.merge(road_csv_merge, how="inner", on="FIPS")
+        st.write(merged_csv_roads)
+    
+
+    return None
+
 
 #----
 # Calling functions
+add_shp_to_map()
+
+
+roads_data = add_road_buffer() 
+merge_road_csv(roads_data)
+
 
 display_data = make_linestring()
 upload_csv(display_data)
-
 
 #----
